@@ -29,7 +29,15 @@ endfunction
 function! metarw#sn#read(fakepath)
   let l = split(a:fakepath, ':')
   if len(l) < 2
-    return ['error', printf('Unexpected fakepath: %s', string(a:fakepath))]
+    let result = []
+    let nodes = metarw#sn#complete('','','')
+    for node in nodes[0]
+      call add(result, {
+            \  'label': split(node, ':')[2],
+            \  'fakepath': node
+      \})
+    endfor
+    return ['browse', result]
   endif
   let err = s:authorization()
   if len(err)

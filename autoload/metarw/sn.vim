@@ -8,16 +8,16 @@ function! metarw#sn#complete(arglead, cmdline, cursorpos)
   if len(s:authorization())
     return [[], 'sn:', '']
   endif
-  let url = printf('https://simple-note.appspot.com/api/index?auth=%s&email=%s', s:token, s:email)
+  let url = printf('https://simple-note.appspot.com/api2/index?auth=%s&email=%s', s:token, s:email)
   let res = webapi#http#get(url)
-  let nodes = webapi#json#decode(iconv(res.content, 'utf-8', &encoding))
+  let nodes = webapi#json#decode(iconv(res.content, 'utf-8', &encoding)).data
   let candidate = []
   for node in nodes
     if !node.deleted
       if !has_key(s:titles, node.key)
-        let url = printf('https://simple-note.appspot.com/api/note?key=%s&auth=%s&email=%s', node.key, s:token, s:email)
+        let url = printf('https://simple-note.appspot.com/api2/data/%s?auth=%s&email=%s', node.key, s:token, s:email)
         let res = webapi#http#get(url)
-        let lines = split(iconv(res.content, 'utf-8', &encoding), "\n")
+        let lines = split(iconv(webapi#json#decode(res.content).content, 'utf-8', &encoding), "\n")
         let s:titles[node.key] = len(lines) > 0 ? lines[0] : ''
       endif
       call add(candidate, printf('sn:%s:%s', escape(node.key, ' \/#%'), escape(s:titles[node.key], ' \/#%')))
@@ -35,11 +35,11 @@ function! metarw#sn#read(fakepath)
   if len(err)
     return ['error', err)
   endif
-  let url = printf('https://simple-note.appspot.com/api/note?key=%s&auth=%s&email=%s', l[1], s:token, s:email)
+  let url = printf('https://simple-note.appspot.com/api2/data/%s?auth=%s&email=%s', l[1], s:token, s:email)
   let res = webapi#http#get(url)
   if res.status == '200'
     setlocal noswapfile
-    put =iconv(res.content, 'utf-8', &encoding)
+    put =iconv(webapi#json#decode(res.content).content, 'utf-8', &encoding)
     let b:sn_key = l[1]
     return ['done', '']
   endif
@@ -55,24 +55,29 @@ function! metarw#sn#write(fakepath, line1, line2, append_p)
   if len(err)
     return ['error', err)
   endif
-  if len(l[1]) > 0 && line('$') == 1 && getline(1) == ''
-    let url = printf('https://simple-note.appspot.com/api/delete?key=%s&auth=%s&email=%s', l[1], s:token, s:email)
-    let res = webapi#http#get(url)
-    if res.status == '200'
-      echomsg 'deleted'
-      return ['done', '']
-    endif
-  endif
+  let data = {}
     if len(l[1]) > 0
-      let url = printf('https://simple-note.appspot.com/api/note?key=%s&auth=%s&email=%s', l[1], s:token, s:email)
+      let url = printf('https://simple-note.appspot.com/api2/data/%s?auth=%s&email=%s', l[1], s:token, s:email)
+      let data.key = l[1]
+      if line('$') == 1 && getline(1) == ''
+        let data.deleted = 1
+      else
+        let data.deleted = 0
+      endif
     else
-      let url = printf('https://simple-note.appspot.com/api/note?auth=%s&email=%s', s:token, s:email)
+      let url = printf('https://simple-note.appspot.com/api2/data?auth=%s&email=%s', s:token, s:email)
     endif
-    let res = webapi#http#post(url, webapi#base64#b64encode(iconv(join(getline(a:line1, a:line2), "\n"), &encoding, 'utf-8')))
+    let data.content = iconv(join(getline(a:line1, a:line2), "\n"), &encoding, 'utf-8')
+    let res = webapi#http#post(url, webapi#json#encode(data))
     if res.status == '200'
       if len(l[1]) == 0
-        let key = res.content
-        silent! exec 'file '.printf('sn:%s', escape(key, ' \/#%'))
+        let json = webapi#json#decode(res.content)
+        let key = json.key
+        if json.deleted
+          echomsg 'deleted'
+        else
+          silent! exec 'file '.printf('sn:%s', escape(key, ' \/#%'))
+        endif
         set nomodified
       endif
       return ['done', '']
